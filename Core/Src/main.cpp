@@ -27,6 +27,7 @@
 #include "bass_drum.h"
 #include "hihat.h"
 #include "fm_hit.h"
+#include "fx.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -76,6 +77,7 @@ Out fm_out;
 BassDrum bass_drum(sample_rate, gen);
 HiHat hi_hat(sample_rate, gen);
 FmHit fm(sample_rate, gen);
+FX fx(sample_rate, gen);
 
 // USER INTERFACE;
 uint8_t pot_seq_1 = 2; // pot_data[6]
@@ -100,7 +102,7 @@ bool mode_select_button_state = true; // just a placeholder so I don't forget to
 uint8_t bpm = 120;
 uint8_t step = 0;
 uint16_t step_sample = 0;
-uint8_t glitch = 0;
+uint8_t stutter = 0;
 bool accent = false;
 bool run = false;
 
@@ -179,7 +181,7 @@ void processData(bool run){
                     chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits);
                     accent = false;
                 }
-                glitch = artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits);
+                stutter = artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits);
 
                 for (int i = 0; i < 3; ++i) {
                     seq_buffer[i][step] = hits[i];
@@ -197,6 +199,9 @@ void processData(bool run){
             ++step;
             if (step > 15) {
                 step = 0;
+            }
+            if ((rand() % 100) < pot_xtra ) {
+                fx.set_start(steps_sample);
             }
         }
         ++step_sample;
@@ -218,16 +223,19 @@ void processData(bool run){
 	        bass_drum_out = bass_drum.Process();
 	        hi_hat_out = hi_hat.Process();
 	        fm_out = fm.Process();
-	        out_l = (bass_drum_out.out_l + hi_hat_out.out_l + fm_out.out_l)/10;
-	        out_r = (bass_drum_out.out_r + hi_hat_out.out_r + fm_out.out_r)/10;
+	        out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 15 + fm_out.out_l * 8 ) / 20);
+	        out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 15 + fm_out.out_r * 8 ) / 20);
+	        fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 10);
+		} else {
+			outBufPtr[n] = (out_l);
+			outBufPtr[n + 1] = (out_r);
 		}
 
         for (int i = 0; i < 3; ++i) {
             hits[i] = 0; // Access each element using array subscript notation
         }
 
-		outBufPtr[n] = (out_l * pot_volume) >> 7;
-		outBufPtr[n + 1] = (out_r * pot_volume) >> 7;
+
 	}
 	dataReadyFlag = 0;
 }
