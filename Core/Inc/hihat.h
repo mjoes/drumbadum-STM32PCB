@@ -56,7 +56,7 @@ public:
 
     void set_velocity(uint16_t velocity, bool accent) {
         if (accent == true) {
-            HH.velocity_ = 500;
+            HH.velocity_ = 600;
         } else {
             HH.velocity_ = velocity;
         }
