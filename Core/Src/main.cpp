@@ -103,13 +103,13 @@ uint8_t bpm = 120;
 uint8_t step = 0;
 uint16_t step_sample = 0;
 uint8_t stutter = 0;
-bool accent = false;
 bool run = false;
 
 uint16_t pot_data[14];
 
 // Initialize sequencer
-int16_t hits[3] = { 0, 0, 0};
+bool hits[3] = { 0, 0, 0};
+bool accent[3] = { 0, 0, 0};
 int16_t seq_buffer[3][16] = {0};
 const uint8_t steps = 16; // 8, 16 or 32
 uint32_t bar_sample = (60 * sample_rate * 4) / (bpm);
@@ -174,14 +174,12 @@ void processData(bool run){
                 }
             } else {
                 if (rhythms[pot_seq_1][step] == true){
-                    drum_hit(pot_seq_2,pot_seq_3,step, hits);
-                    accent = true;
+                	drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
                 }
                 else {
-                    chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits);
-                    accent = false;
+                	chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
                 }
-                stutter = artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits);
+                stutter = artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
 
                 for (int i = 0; i < 3; ++i) {
                     seq_buffer[i][step] = hits[i];
@@ -208,13 +206,13 @@ void processData(bool run){
 
 		// Generate waveform sample
 		if (hits[0] == 1) {
-		 fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent);
+		 fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent[0]);
 		}
 		if (hits[1] == 1) {
-			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, accent);
+			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, accent[1]);
 		}
 		if (hits[2] == 1) {
-		 hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent);
+		 hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent[2]);
 		}
 
 		int16_t out_l = 0;
@@ -223,9 +221,9 @@ void processData(bool run){
 	        bass_drum_out = bass_drum.Process();
 	        hi_hat_out = hi_hat.Process();
 	        fm_out = fm.Process();
-	        out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 15 + fm_out.out_l * 8 ) / 20);
-	        out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 15 + fm_out.out_r * 8 ) / 20);
-	        fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 10);
+	        out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 15 + fm_out.out_l * 8 ) / 30);
+	        out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 15 + fm_out.out_r * 8 ) / 30);
+	        fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 5);
 		} else {
 			outBufPtr[n] = (out_l);
 			outBufPtr[n + 1] = (out_r);
