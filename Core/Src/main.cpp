@@ -249,8 +249,8 @@ void processData(bool run){
 	        bass_drum_out = bass_drum.Process();
 	        hi_hat_out = hi_hat.Process();
 	        fm_out = fm.Process();
-	        out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 15 + fm_out.out_l * 8 ) / 30);
-	        out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 15 + fm_out.out_r * 8 ) / 30);
+	        out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 20 + fm_out.out_l * 8 ) / 30);
+	        out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 20 + fm_out.out_r * 8 ) / 30);
 	        fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 5);
 		} else {
 			outBufPtr[n] = (out_l);
