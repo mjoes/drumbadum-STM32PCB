@@ -102,19 +102,24 @@ bool mode_select_button_state = true; // just a placeholder so I don't forget to
 uint8_t bpm = 120;
 uint8_t step = 0;
 uint16_t step_sample = 0;
-uint8_t stutter = 0;
 bool run = false;
 
+// Init stutter
+
+uint16_t stutter_sample = 1;
+bool stutter_bool = false;
+uint8_t stutters_left = 0;
 uint16_t pot_data[14];
 
 // Initialize sequencer
 bool hits[3] = { 0, 0, 0};
 bool accent[3] = { 0, 0, 0};
+bool stutter[3] = { 0, 0, 0};
 int16_t seq_buffer[3][16] = {0};
 const uint8_t steps = 16; // 8, 16 or 32
 uint32_t bar_sample = (60 * sample_rate * 4) / (bpm);
 uint16_t steps_sample = bar_sample / steps;
-// uint16_t glitch_sample = steps_sample / 4 + 1;
+uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -167,28 +172,51 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 void processData(bool run){
 	for (uint8_t n = 0; n < (BUFFER_SIZE / 2) - 1; n += 2 ){
+        if (step_sample % stutter_sample == 0 && stutter_bool == true) {
+            hits[0] = stutter[0];
+            hits[1] = stutter[1];
+            hits[2] = stutter[2];
+            stutters_left--;
+            if (stutters_left == 0) {
+                stutter_bool = false;
+            }
+        }
         if (step_sample == steps_sample){
             if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
                 for (int i = 0; i < 3; ++i) {
-                    hits[i] = seq_buffer[i][step]; // Access each element using array subscript notation
+                    hits[i] = seq_buffer[i][step];
                 }
-            } else {
+            } else if (stutter_bool == false) {
                 if (rhythms[pot_seq_1][step] == true){
                 	drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
                 }
                 else {
                 	chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
                 }
-                stutter = artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
+                artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
 
+                // Save hits for "turing machine"
                 for (int i = 0; i < 3; ++i) {
                     seq_buffer[i][step] = hits[i];
                 }
             }
 
-            // TEMP Just to blink led with BPM
+            // Stutter & LED
             if ((step + 1) % 4 == 1 && run == true) {
             	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_SET);
+
+
+                // // pot_xtra defines probability of stutter between 0 and 0.1 based on pot_xtra
+                stutter_bool = (rand() % 100) < (pot_xtra / 7);
+
+                if (stutter_bool){
+                    stutters_left = (rand() % 4) + 1; // How many stutters in next cycle
+                    uint16_t index = (rand() % 2); // either 16 or 32th stutters
+                    stutter_sample = stutter_samples[index];
+                    for (int j = 0; j < 3; ++j) {
+                        stutter[j] = hits[j]; // Save current hit for the stutter
+                    }
+                }
             } else {
             	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_RESET);
             }
@@ -307,6 +335,8 @@ int main(void)
 	// Adjust BPM
 	bar_sample = (60 * sample_rate * 4) / (pot_bpm);
 	steps_sample = bar_sample / steps;
+	stutter_samples[0] = steps_sample;
+	stutter_samples[1] = (bar_sample / 32);
 
 	/* USER CODE BEGIN 3 */
 	if (dataReadyFlag == 1) {
