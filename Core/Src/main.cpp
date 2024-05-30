@@ -128,7 +128,8 @@ uint16_t steps_sample = bar_sample / steps;
 uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 
 // Initialize MIDI
-uint8_t rxByte;
+uint8_t rxByte, bpm_type, clockCount;
+uint32_t lastTick;
 
 /* USER CODE END PV */
 
@@ -147,12 +148,21 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+void CalculateBPM(void) {
+    uint32_t currentTick = HAL_GetTick();
+    uint32_t elapsedTime = currentTick - lastTick;
+    lastTick = currentTick;
+    bpm = 60000 / elapsedTime;
+}
 
 void ProcessMidiByte() {
     switch (rxByte) {
         case MIDI_CLOCK:
-            // Handle MIDI Clock
+        	clockCount++;
+            if (clockCount >= 24) {
+                clockCount = 0;
+                CalculateBPM();
+            }
             break;
         case MIDI_START:
         	if (run == false) {
@@ -389,7 +399,11 @@ int main(void)
 		pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
 
 		// Adjust BPM
-		bar_sample = (60 * sample_rate * 4) / (pot_bpm);
+		if (HAL_GetTick() - lastTick > 1500){
+			bpm = pot_bpm;
+		}
+
+		bar_sample = (60 * sample_rate * 4) / (bpm);
 		steps_sample = bar_sample / steps;
 		stutter_samples[0] = steps_sample;
 		stutter_samples[1] = (bar_sample / 32);
