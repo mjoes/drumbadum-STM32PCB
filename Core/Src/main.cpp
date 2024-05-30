@@ -65,7 +65,7 @@ UART_HandleTypeDef huart1;
 int16_t dacData[BUFFER_SIZE];
 static volatile int16_t *outBufPtr = &dacData[0];
 uint8_t dataReadyFlag;
-const uint16_t sample_rate = 43400;
+const uint16_t sample_rate = 43402;
 
 // Sinewaves
 uint32_t sampleNumber = 0;
@@ -124,6 +124,8 @@ bool stutter[3] = { 0, 0, 0};
 int16_t seq_buffer[3][16] = {0};
 const uint8_t steps = 16; // 8, 16 or 32
 uint32_t bar_sample = (60 * sample_rate * 4) / (bpm);
+uint32_t total_samples = (60 * sample_rate * 4);
+
 uint16_t steps_sample = bar_sample / steps;
 uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 
@@ -131,7 +133,9 @@ uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 uint8_t rxByte, bpm_type, clockCount, clk_source;
 uint32_t lastTick[2];
 uint8_t bpm_source[3] = { 120, 120, 120 };
-
+bool reset_step_sample = true;
+bool sync = false;
+bool active_seq = true;
 
 /* USER CODE END PV */
 
@@ -155,6 +159,7 @@ void CalculateBPM(uint8_t sync_type) {
     uint32_t elapsedTime = currentTick - lastTick[sync_type];
     lastTick[sync_type] = currentTick;
     bpm_source[sync_type] = 60000 / elapsedTime;
+    reset_step_sample = true;
 }
 
 void ProcessMidiByte() {
@@ -236,8 +241,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
-void processData(bool run){
+void processData(bool run, bool sync){
+	if (step_sample > steps_sample) {
+		step_sample = 0;
+	}
 	for (uint8_t n = 0; n < (BUFFER_SIZE / 2) - 1; n += 2 ){
+		active_seq = true;
+		if (sync == true){
+			if ((step + 1) % 4 == 1 && reset_step_sample == false){ // We have completed 4 steps
+				// Stop sequencer until it gets the start flag
+				active_seq = false;
+			}
+			if (reset_step_sample == true){ // We have completed 4 steps
+				step_sample = steps_sample;
+				reset_step_sample = false;
+			}
+		}
         if (step_sample % stutter_sample == 0 && stutter_bool == true) {
             hits[0] = stutter[0];
             hits[1] = stutter[1];
@@ -247,7 +266,7 @@ void processData(bool run){
                 stutter_bool = false;
             }
         }
-        if (step_sample == steps_sample){
+        if (step_sample == steps_sample && active_seq == true){
             if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
                 for (int i = 0; i < 3; ++i) {
                     hits[i] = seq_buffer[i][step];
@@ -404,7 +423,8 @@ int main(void)
 
 		// Adjust BPM
 		bpm_source[2] = pot_bpm;
-		uint32_t bpmTick = HAL_GetTick();;
+		uint32_t bpmTick = HAL_GetTick();
+		sync = true;
 		if (bpmTick - lastTick[0] < 1500){
 			clk_source = 0;
 		}
@@ -413,16 +433,18 @@ int main(void)
 		}
 		else {
 			clk_source = 2;
+			sync = false;
 		}
-		bpm = bpm_source[clk_source]; //bpm_source[clk_source];
 
-		bar_sample = (60 * sample_rate * 4) / (bpm);
-		steps_sample = bar_sample / steps;
-		stutter_samples[0] = steps_sample;
-		stutter_samples[1] = (bar_sample / 32);
+		if (bpm_source[clk_source] != bpm){
+			bpm = bpm_source[clk_source];
+			steps_sample = total_samples / bpm / 16;
+			stutter_samples[0] = steps_sample;
+			stutter_samples[1] = steps_sample / 2;
+		}
 
 		// Run program
-		processData(run);
+		processData(run, sync);
 	}
 //	if (midiReadyFlag == 1) {
 //        ProcessMidiByte();
