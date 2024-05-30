@@ -28,6 +28,8 @@
 #include "hihat.h"
 #include "fm_hit.h"
 #include "fx.h"
+#include "midi.h"
+#include "global.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -38,10 +40,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define BUFFER_SIZE    128
-#define MIDI_CLOCK     0xF8
-#define MIDI_START     0xFA
-#define MIDI_CONTINUE  0xFB
-#define MIDI_STOP      0xFC
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -81,6 +79,7 @@ Out fm_out;
 BassDrum bass_drum(sample_rate, gen);
 HiHat hi_hat(sample_rate, gen);
 FmHit fm(sample_rate, gen);
+Midi midi;
 FX fx(sample_rate, gen);
 
 // USER INTERFACE;
@@ -104,11 +103,6 @@ bool mode_select_button_state = true; // just a placeholder so I don't forget to
 
 // Sequencer
 uint8_t bpm = 120;
-uint8_t step = 0;
-uint16_t step_sample = 0;
-uint8_t stop_step = 0;
-uint16_t stop_sample = 0;
-bool run = false;
 
 // Init stutter
 
@@ -130,10 +124,8 @@ uint16_t steps_sample = bar_sample / steps;
 uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 
 // Initialize MIDI
-uint8_t rxByte, bpm_type, clockCount, clk_source;
-uint32_t lastTick[2];
+uint8_t bpm_type, clk_source;
 uint8_t bpm_source[3] = { 120, 120, 120 };
-bool reset_step_sample = true;
 bool sync = false;
 bool active_seq = true;
 
@@ -154,55 +146,9 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void CalculateBPM(uint8_t sync_type) {
-    uint32_t currentTick = HAL_GetTick();
-    uint32_t elapsedTime = currentTick - lastTick[sync_type];
-    lastTick[sync_type] = currentTick;
-    bpm_source[sync_type] = 60000 / elapsedTime;
-    reset_step_sample = true;
-}
-
-void ProcessMidiByte() {
-    switch (rxByte) {
-        case MIDI_CLOCK:
-        	clockCount++;
-            if (clockCount >= 24) {
-                clockCount = 0;
-                CalculateBPM(0);
-            }
-            break;
-        case MIDI_START:
-        	if (run == false) {
-        		step = 0;
-        		step_sample = 0;
-        		run = true;
-        	}
-            break;
-        case MIDI_CONTINUE:
-        	if (run == false){
-        		step = stop_step;
-        		step_sample = stop_sample;
-        		run = true;
-        	}
-            break;
-        case MIDI_STOP:
-        	if (run == true){
-        		stop_step = step;
-        		stop_sample = step_sample;
-        		run = false;
-        	}
-            break;
-        default:
-            break; // Ignore other messages
-    }
-//    midiReadyFlag = 0;
-    HAL_UART_Receive_IT(&huart1, &rxByte, 1);
-}
-
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART1) {
-//    	midiReadyFlag = 1;
-    	ProcessMidiByte();
+    	midi.ProcessMidiByte();
     }
 }
 
@@ -223,7 +169,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){ //interrupt handler
 		start_button_state = false;
 	}
 	if(GPIO_Pin == CLOCK_IN_Pin){
-		CalculateBPM(1);
+		midi.CalculateBPM(1);
 	}
 	else{
 		__NOP();
@@ -390,12 +336,12 @@ int main(void)
   // UART
   HAL_UART_Receive_IT(&huart1, &rxByte, 1);
 
-	// DMA stream for audio
-	HAL_I2S_Transmit_DMA(&hi2s3, (uint16_t *) dacData, BUFFER_SIZE);
+  // DMA stream for audio
+  HAL_I2S_Transmit_DMA(&hi2s3, (uint16_t *) dacData, BUFFER_SIZE);
 
-	// DMA stream for ADC
-	HAL_ADC_Start_DMA(&hadc1, (uint32_t *) pot_data, 14);
-	HAL_TIM_Base_Start(&htim2);
+  // DMA stream for ADC
+  HAL_ADC_Start_DMA(&hadc1, (uint32_t *) pot_data, 14);
+  HAL_TIM_Base_Start(&htim2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -423,18 +369,8 @@ int main(void)
 
 		// Adjust BPM
 		bpm_source[2] = pot_bpm;
-		uint32_t bpmTick = HAL_GetTick();
-		sync = true;
-		if (bpmTick - lastTick[0] < 1500){
-			clk_source = 0;
-		}
-		else if (bpmTick - lastTick[1] < 1500){
-			clk_source = 1;
-		}
-		else {
-			clk_source = 2;
-			sync = false;
-		}
+		clk_source = midi.clk_source();
+		sync = midi.syncFlag();
 
 		if (bpm_source[clk_source] != bpm){
 			bpm = bpm_source[clk_source];
@@ -446,10 +382,6 @@ int main(void)
 		// Run program
 		processData(run, sync);
 	}
-//	if (midiReadyFlag == 1) {
-//        ProcessMidiByte();
-//	}
-
   }
   /* USER CODE END 3 */
 }
