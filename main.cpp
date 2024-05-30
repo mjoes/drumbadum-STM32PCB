@@ -27,6 +27,7 @@
 #include "bass_drum.h"
 #include "hihat.h"
 #include "fm_hit.h"
+#include "fx.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -36,7 +37,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BUFFER_SIZE 	128
+#define BUFFER_SIZE    128
+#define MIDI_CLOCK     0xF8
+#define MIDI_START     0xFA
+#define MIDI_CONTINUE  0xFB
+#define MIDI_STOP      0xFC
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -76,43 +81,55 @@ Out fm_out;
 BassDrum bass_drum(sample_rate, gen);
 HiHat hi_hat(sample_rate, gen);
 FmHit fm(sample_rate, gen);
+FX fx(sample_rate, gen);
 
 // USER INTERFACE;
-uint8_t pot_seq_1 = pot_map(100,5);
-uint8_t pot_seq_2 = pot_map(500,50);
-uint8_t pot_seq_3 = pot_map(300,50);
-uint8_t pot_seq_rd = 50;//pot_map(100,100);
-uint8_t pot_seq_art = 50;//pot_map(100,100);
-uint8_t pot_seq_turing = pot_map(500,100);
-uint8_t pot_snd_1 = pot_map(300,50);
+uint8_t pot_seq_1 = 2; // pot_data[6]
+uint8_t pot_seq_2 = 25; // pot_data[5]
+uint8_t pot_seq_3 = 25; // pot_data[7]
+uint8_t pot_seq_rd = 50; // pot_data[4]
+uint8_t pot_seq_art = 50;// pot_data[3]
+uint8_t pot_seq_turing = 50; // pot_data[2]
+uint8_t pot_snd_1 = 25; // pot_data[10]
 uint8_t pot_snd_2 = 50 - pot_map(700,50);
-uint8_t pot_snd_bd = pot_map(100,100);
-uint8_t pot_snd_hh = pot_map(900,100);
-uint8_t pot_snd_fm = pot_map(500,100);
-uint8_t pot_turing_sounds = 0; //Just a placeholder so I don't forget
-uint8_t pot_bpm = 0; //Just a placeholder so I don't forget to create it
-uint8_t pot_volume = 0; //Just a placeholder so I don't forget to create it
+uint8_t pot_snd_bd = 50; // pot_data[13]
+uint8_t pot_snd_hh = 50; // pot_data[9]
+uint8_t pot_snd_fm = 50; // pot_data[8]
+uint8_t pot_xtra = 0; // pot_data[12]
+uint8_t pot_bpm = 120; // pot_data[1]
+uint8_t pot_volume = 100; // pot_data[0]
 // DON'T FORGET 2X LED AND CLOCK IN AND MIDI IN AND STEREO OUT
 bool start_button_state = true;
 bool mode_select_button_state = true; // just a placeholder so I don't forget to create it
 
 // Sequencer
-const uint8_t bpm = 130;
+uint8_t bpm = 120;
 uint8_t step = 0;
 uint16_t step_sample = 0;
-uint8_t glitch = 0;
-bool accent = false;
+uint8_t stop_step = 0;
+uint16_t stop_sample = 0;
 bool run = false;
 
+// Init stutter
+
+uint16_t stutter_sample = 1;
+bool stutter_bool = false;
+uint8_t stutters_left = 0;
 uint16_t pot_data[14];
 
 // Initialize sequencer
-int16_t hits[3] = { 0, 0, 0};
+bool hits[3] = { 0, 0, 0};
+bool accent[3] = { 0, 0, 0};
+bool stutter[3] = { 0, 0, 0};
 int16_t seq_buffer[3][16] = {0};
-uint8_t steps = 16; // 8, 16 or 32
+const uint8_t steps = 16; // 8, 16 or 32
 uint32_t bar_sample = (60 * sample_rate * 4) / (bpm);
 uint16_t steps_sample = bar_sample / steps;
-// uint16_t glitch_sample = steps_sample / 4 + 1;
+uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
+
+// Initialize MIDI
+uint8_t rxByte;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -130,6 +147,48 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
+void ProcessMidiByte() {
+    switch (rxByte) {
+        case MIDI_CLOCK:
+            // Handle MIDI Clock
+            break;
+        case MIDI_START:
+        	if (run == false) {
+        		step = 0;
+        		step_sample = 0;
+        		run = true;
+        	}
+            break;
+        case MIDI_CONTINUE:
+        	if (run == false){
+        		step = stop_step;
+        		step_sample = stop_sample;
+        		run = true;
+        	}
+            break;
+        case MIDI_STOP:
+        	if (run == true){
+        		stop_step = step;
+        		stop_sample = step_sample;
+        		run = false;
+        	}
+            break;
+        default:
+            break; // Ignore other messages
+    }
+//    midiReadyFlag = 0;
+    HAL_UART_Receive_IT(&huart1, &rxByte, 1);
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART1) {
+//    	midiReadyFlag = 1;
+    	ProcessMidiByte();
+    }
+}
+
 void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s) {
 	outBufPtr = &dacData[0];
 	dataReadyFlag = 1;
@@ -163,46 +222,76 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
-
 void processData(bool run){
 	for (uint8_t n = 0; n < (BUFFER_SIZE / 2) - 1; n += 2 ){
+        if (step_sample % stutter_sample == 0 && stutter_bool == true) {
+            hits[0] = stutter[0];
+            hits[1] = stutter[1];
+            hits[2] = stutter[2];
+            stutters_left--;
+            if (stutters_left == 0) {
+                stutter_bool = false;
+            }
+        }
         if (step_sample == steps_sample){
             if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
                 for (int i = 0; i < 3; ++i) {
-                    hits[i] = seq_buffer[i][step]; // Access each element using array subscript notation
+                    hits[i] = seq_buffer[i][step];
                 }
-            } else {
+            } else if (stutter_bool == false) {
                 if (rhythms[pot_seq_1][step] == true){
-                    drum_hit(pot_seq_2,pot_seq_3,step, hits);
-                    accent = true;
+                	drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
                 }
                 else {
-                    chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits);
-                    accent = false;
+                	chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
                 }
-                glitch = artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits);
+                artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
 
+                // Save hits for "turing machine"
                 for (int i = 0; i < 3; ++i) {
                     seq_buffer[i][step] = hits[i];
                 }
             }
+
+            // Stutter & LED
+            if ((step + 1) % 4 == 1 && run == true) {
+            	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_SET);
+
+                // // pot_xtra defines probability of stutter between 0 and 0.1 based on pot_xtra
+                stutter_bool = (rand() % 100) < (pot_xtra / 7);
+
+                if (stutter_bool){
+                    stutters_left = (rand() % 4) + 1; // How many stutters in next cycle
+                    uint16_t index = (rand() % 2); // either 16 or 32th stutters
+                    stutter_sample = stutter_samples[index];
+                    for (int j = 0; j < 3; ++j) {
+                        stutter[j] = hits[j]; // Save current hit for the stutter
+                    }
+                }
+            } else {
+            	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_RESET);
+            }
+
             step_sample = 0;
             ++step;
             if (step > 15) {
                 step = 0;
+            }
+            if ((rand() % 100) < pot_xtra ) {
+                fx.set_start(steps_sample);
             }
         }
         ++step_sample;
 
 		// Generate waveform sample
 		if (hits[0] == 1) {
-		 fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent);
+			fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent[0]);
 		}
 		if (hits[1] == 1) {
-			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, accent);
+			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, accent[1]);
 		}
 		if (hits[2] == 1) {
-		 hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent);
+			hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent[2]);
 		}
 
 		int16_t out_l = 0;
@@ -211,16 +300,19 @@ void processData(bool run){
 	        bass_drum_out = bass_drum.Process();
 	        hi_hat_out = hi_hat.Process();
 	        fm_out = fm.Process();
-	        out_l = (bass_drum_out.out_l + hi_hat_out.out_l + fm_out.out_l)/10;
-	        out_r = (bass_drum_out.out_r + hi_hat_out.out_r + fm_out.out_r)/10;
+	        out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 20 + fm_out.out_l * 8 ) / 30);
+	        out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 20 + fm_out.out_r * 8 ) / 30);
+	        fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 5);
+		} else {
+			outBufPtr[n] = (out_l);
+			outBufPtr[n + 1] = (out_r);
 		}
 
         for (int i = 0; i < 3; ++i) {
             hits[i] = 0; // Access each element using array subscript notation
         }
 
-		outBufPtr[n] = out_l;
-		outBufPtr[n + 1] = out_r;
+
 	}
 	dataReadyFlag = 0;
 }
@@ -262,6 +354,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+  // UART
+  HAL_UART_Receive_IT(&huart1, &rxByte, 1);
 
 	// DMA stream for audio
 	HAL_I2S_Transmit_DMA(&hi2s3, (uint16_t *) dacData, BUFFER_SIZE);
@@ -276,18 +370,40 @@ int main(void)
   while (1)
   {
 	/* USER CODE END WHILE */
-	pot_seq_art = pot_data[0] * 100 / 4096;
-	pot_seq_rd = pot_data[7] * 100 / 4096;
 	/* USER CODE BEGIN 3 */
 	if (dataReadyFlag == 1) {
+		// Polling
+		pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
+		pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
+		pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
+		pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
+		pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
+		pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
+		pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
+		pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
+		pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
+		pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
+		pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
+		pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
+		pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
+		pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
+
+		// Adjust BPM
+		bar_sample = (60 * sample_rate * 4) / (pot_bpm);
+		steps_sample = bar_sample / steps;
+		stutter_samples[0] = steps_sample;
+		stutter_samples[1] = (bar_sample / 32);
+
+		// Run program
 		processData(run);
 	}
+//	if (midiReadyFlag == 1) {
+//        ProcessMidiByte();
+//	}
 
   }
   /* USER CODE END 3 */
 }
-
-
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -655,16 +771,16 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 31250;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.Mode = UART_MODE_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart1) != HAL_OK)
   {
-    Error_Handler();
+	Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
 
