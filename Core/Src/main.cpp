@@ -128,8 +128,10 @@ uint16_t steps_sample = bar_sample / steps;
 uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 
 // Initialize MIDI
-uint8_t rxByte, bpm_type, clockCount;
-uint32_t lastTick;
+uint8_t rxByte, bpm_type, clockCount, clk_source;
+uint32_t lastTick[2];
+uint8_t bpm_source[3] = { 120, 120, 120 };
+
 
 /* USER CODE END PV */
 
@@ -148,11 +150,11 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void CalculateBPM(void) {
+void CalculateBPM(uint8_t sync_type) {
     uint32_t currentTick = HAL_GetTick();
-    uint32_t elapsedTime = currentTick - lastTick;
-    lastTick = currentTick;
-    bpm = 60000 / elapsedTime;
+    uint32_t elapsedTime = currentTick - lastTick[sync_type];
+    lastTick[sync_type] = currentTick;
+    bpm_source[sync_type] = 60000 / elapsedTime;
 }
 
 void ProcessMidiByte() {
@@ -161,7 +163,7 @@ void ProcessMidiByte() {
         	clockCount++;
             if (clockCount >= 24) {
                 clockCount = 0;
-                CalculateBPM();
+                CalculateBPM(0);
             }
             break;
         case MIDI_START:
@@ -215,10 +217,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){ //interrupt handler
 		HAL_TIM_Base_Start_IT(&htim3);
 		start_button_state = false;
 	}
+	if(GPIO_Pin == CLOCK_IN_Pin){
+		CalculateBPM(1);
+	}
 	else{
 		__NOP();
 	}
-
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -399,9 +403,18 @@ int main(void)
 		pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
 
 		// Adjust BPM
-		if (HAL_GetTick() - lastTick > 1500){
-			bpm = pot_bpm;
+		bpm_source[2] = pot_bpm;
+		uint32_t bpmTick = HAL_GetTick();;
+		if (bpmTick - lastTick[0] < 1500){
+			clk_source = 0;
 		}
+		else if (bpmTick - lastTick[1] < 1500){
+			clk_source = 1;
+		}
+		else {
+			clk_source = 2;
+		}
+		bpm = bpm_source[clk_source]; //bpm_source[clk_source];
 
 		bar_sample = (60 * sample_rate * 4) / (bpm);
 		steps_sample = bar_sample / steps;
@@ -843,14 +856,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : CLOCK_IN_Pin */
-  GPIO_InitStruct.Pin = CLOCK_IN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(CLOCK_IN_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : START_STOP_BTN_Pin MODE_SELECT_BTN_Pin */
-  GPIO_InitStruct.Pin = START_STOP_BTN_Pin|MODE_SELECT_BTN_Pin;
+  /*Configure GPIO pins : CLOCK_IN_Pin START_STOP_BTN_Pin MODE_SELECT_BTN_Pin */
+  GPIO_InitStruct.Pin = CLOCK_IN_Pin|START_STOP_BTN_Pin|MODE_SELECT_BTN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -863,6 +870,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(MODE_SELECT_LED_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+
   HAL_NVIC_SetPriority(EXTI9_5_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
