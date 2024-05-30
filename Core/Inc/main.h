@@ -59,6 +59,7 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define CLOCK_IN_Pin GPIO_PIN_2
 #define CLOCK_IN_GPIO_Port GPIOB
+#define CLOCK_IN_EXTI_IRQn EXTI2_IRQn
 #define START_STOP_BTN_Pin GPIO_PIN_5
 #define START_STOP_BTN_GPIO_Port GPIOB
 #define START_STOP_BTN_EXTI_IRQn EXTI9_5_IRQn
