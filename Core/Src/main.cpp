@@ -65,7 +65,7 @@ UART_HandleTypeDef huart1;
 int16_t dacData[BUFFER_SIZE];
 static volatile int16_t *outBufPtr = &dacData[0];
 uint8_t dataReadyFlag;
-const uint16_t sample_rate = 48000;
+const uint16_t sample_rate = 43400;
 
 // Sinewaves
 uint32_t sampleNumber = 0;
@@ -666,13 +666,13 @@ static void MX_I2S3_Init(void)
   hi2s3.Init.Standard = I2S_STANDARD_PHILIPS;
   hi2s3.Init.DataFormat = I2S_DATAFORMAT_16B;
   hi2s3.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
-  hi2s3.Init.AudioFreq = I2S_AUDIOFREQ_48K;
+  hi2s3.Init.AudioFreq = I2S_AUDIOFREQ_44K;
   hi2s3.Init.CPOL = I2S_CPOL_LOW;
   hi2s3.Init.ClockSource = I2S_CLOCK_PLL;
   hi2s3.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
   if (HAL_I2S_Init(&hi2s3) != HAL_OK)
   {
-    Error_Handler();
+	Error_Handler();
   }
   /* USER CODE BEGIN I2S3_Init 2 */
 

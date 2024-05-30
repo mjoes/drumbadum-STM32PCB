@@ -65,7 +65,7 @@ UART_HandleTypeDef huart1;
 int16_t dacData[BUFFER_SIZE];
 static volatile int16_t *outBufPtr = &dacData[0];
 uint8_t dataReadyFlag;
-const uint16_t sample_rate = 48000;
+const uint16_t sample_rate = 43400;
 
 // Sinewaves
 uint32_t sampleNumber = 0;
