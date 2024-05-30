@@ -170,9 +170,9 @@ void ProcessMidiByte() {
             break;
         case MIDI_STOP:
         	if (run == true){
-        		run = false;
         		stop_step = step;
         		stop_sample = step_sample;
+        		run = false;
         	}
             break;
         default:
@@ -372,29 +372,31 @@ int main(void)
 	/* USER CODE END WHILE */
 
 
-	// Polling
-	pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
-	pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
-	pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
-	pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
-	pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
-	pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
-	pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
-	pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
-	pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
-	pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
-	pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
-	pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
-	pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
-	pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
 
-	// Adjust BPM
-	bar_sample = (60 * sample_rate * 4) / (pot_bpm);
-	steps_sample = bar_sample / steps;
-	stutter_samples[0] = steps_sample;
-	stutter_samples[1] = (bar_sample / 32);
 	/* USER CODE BEGIN 3 */
 	if (dataReadyFlag == 1) {
+		// Polling
+		pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
+		pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
+		pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
+		pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
+		pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
+		pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
+		pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
+		pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
+		pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
+		pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
+		pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
+		pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
+		pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
+		pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
+
+		// Adjust BPM
+		bar_sample = (60 * sample_rate * 4) / (pot_bpm);
+		steps_sample = bar_sample / steps;
+		stutter_samples[0] = steps_sample;
+		stutter_samples[1] = (bar_sample / 32);
+
 		// Run program
 		processData(run);
 	}
