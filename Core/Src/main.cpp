@@ -37,7 +37,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BUFFER_SIZE 	128
+#define BUFFER_SIZE    128
+#define MIDI_CLOCK     0xF8
+#define MIDI_START     0xFA
+#define MIDI_CONTINUE  0xFB
+#define MIDI_STOP      0xFC
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -102,6 +106,8 @@ bool mode_select_button_state = true; // just a placeholder so I don't forget to
 uint8_t bpm = 120;
 uint8_t step = 0;
 uint16_t step_sample = 0;
+uint8_t stop_step = 0;
+uint16_t stop_sample = 0;
 bool run = false;
 
 // Init stutter
@@ -120,6 +126,10 @@ const uint8_t steps = 16; // 8, 16 or 32
 uint32_t bar_sample = (60 * sample_rate * 4) / (bpm);
 uint16_t steps_sample = bar_sample / steps;
 uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
+
+// Initialize MIDI
+uint8_t rxByte;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -137,6 +147,48 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+
+void ProcessMidiByte() {
+    switch (rxByte) {
+        case MIDI_CLOCK:
+            // Handle MIDI Clock
+            break;
+        case MIDI_START:
+        	if (run == false) {
+        		step = 0;
+        		step_sample = 0;
+        		run = true;
+        	}
+            break;
+        case MIDI_CONTINUE:
+        	if (run == false){
+        		step = stop_step;
+        		step_sample = stop_sample;
+        		run = true;
+        	}
+            break;
+        case MIDI_STOP:
+        	if (run == true){
+        		run = false;
+        		stop_step = step;
+        		stop_sample = step_sample;
+        	}
+            break;
+        default:
+            break; // Ignore other messages
+    }
+//    midiReadyFlag = 0;
+    HAL_UART_Receive_IT(&huart1, &rxByte, 1);
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART1) {
+//    	midiReadyFlag = 1;
+    	ProcessMidiByte();
+    }
+}
+
 void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s) {
 	outBufPtr = &dacData[0];
 	dataReadyFlag = 1;
@@ -205,7 +257,6 @@ void processData(bool run){
             if ((step + 1) % 4 == 1 && run == true) {
             	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_SET);
 
-
                 // // pot_xtra defines probability of stutter between 0 and 0.1 based on pot_xtra
                 stutter_bool = (rand() % 100) < (pot_xtra / 7);
 
@@ -234,13 +285,13 @@ void processData(bool run){
 
 		// Generate waveform sample
 		if (hits[0] == 1) {
-		 fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent[0]);
+			fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent[0]);
 		}
 		if (hits[1] == 1) {
 			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, accent[1]);
 		}
 		if (hits[2] == 1) {
-		 hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent[2]);
+			hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent[2]);
 		}
 
 		int16_t out_l = 0;
@@ -303,6 +354,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+  // UART
+  HAL_UART_Receive_IT(&huart1, &rxByte, 1);
 
 	// DMA stream for audio
 	HAL_I2S_Transmit_DMA(&hi2s3, (uint16_t *) dacData, BUFFER_SIZE);
@@ -317,6 +370,9 @@ int main(void)
   while (1)
   {
 	/* USER CODE END WHILE */
+
+
+	// Polling
 	pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
 	pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
 	pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
@@ -337,11 +393,14 @@ int main(void)
 	steps_sample = bar_sample / steps;
 	stutter_samples[0] = steps_sample;
 	stutter_samples[1] = (bar_sample / 32);
-
 	/* USER CODE BEGIN 3 */
 	if (dataReadyFlag == 1) {
+		// Run program
 		processData(run);
 	}
+//	if (midiReadyFlag == 1) {
+//        ProcessMidiByte();
+//	}
 
   }
   /* USER CODE END 3 */
@@ -713,16 +772,16 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 31250;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.Mode = UART_MODE_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart1) != HAL_OK)
   {
-    Error_Handler();
+	Error_Handler();
   }
   /* USER CODE BEGIN USART1_Init 2 */
 
