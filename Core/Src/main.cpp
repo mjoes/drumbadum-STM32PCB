@@ -37,7 +37,11 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define BUFFER_SIZE 	128
+#define BUFFER_SIZE    128
+#define MIDI_CLOCK     0xF8
+#define MIDI_START     0xFA
+#define MIDI_CONTINUE  0xFB
+#define MIDI_STOP      0xFC
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,7 +65,7 @@ UART_HandleTypeDef huart1;
 int16_t dacData[BUFFER_SIZE];
 static volatile int16_t *outBufPtr = &dacData[0];
 uint8_t dataReadyFlag;
-const uint16_t sample_rate = 48000;
+const uint16_t sample_rate = 43402;
 
 // Sinewaves
 uint32_t sampleNumber = 0;
@@ -102,6 +106,8 @@ bool mode_select_button_state = true; // just a placeholder so I don't forget to
 uint8_t bpm = 120;
 uint8_t step = 0;
 uint16_t step_sample = 0;
+uint8_t stop_step = 0;
+uint16_t stop_sample = 0;
 bool run = false;
 
 // Init stutter
@@ -118,8 +124,19 @@ bool stutter[3] = { 0, 0, 0};
 int16_t seq_buffer[3][16] = {0};
 const uint8_t steps = 16; // 8, 16 or 32
 uint32_t bar_sample = (60 * sample_rate * 4) / (bpm);
+uint32_t total_samples = (60 * sample_rate * 4);
+
 uint16_t steps_sample = bar_sample / steps;
 uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
+
+// Initialize MIDI
+uint8_t rxByte, bpm_type, clockCount, clk_source;
+uint32_t lastTick[2];
+uint8_t bpm_source[3] = { 120, 120, 120 };
+bool reset_step_sample = true;
+bool sync = false;
+bool active_seq = true;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -137,6 +154,58 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void CalculateBPM(uint8_t sync_type) {
+    uint32_t currentTick = HAL_GetTick();
+    uint32_t elapsedTime = currentTick - lastTick[sync_type];
+    lastTick[sync_type] = currentTick;
+    bpm_source[sync_type] = 60000 / elapsedTime;
+    reset_step_sample = true;
+}
+
+void ProcessMidiByte() {
+    switch (rxByte) {
+        case MIDI_CLOCK:
+        	clockCount++;
+            if (clockCount >= 24) {
+                clockCount = 0;
+                CalculateBPM(0);
+            }
+            break;
+        case MIDI_START:
+        	if (run == false) {
+        		step = 0;
+        		step_sample = 0;
+        		run = true;
+        	}
+            break;
+        case MIDI_CONTINUE:
+        	if (run == false){
+        		step = stop_step;
+        		step_sample = stop_sample;
+        		run = true;
+        	}
+            break;
+        case MIDI_STOP:
+        	if (run == true){
+        		stop_step = step;
+        		stop_sample = step_sample;
+        		run = false;
+        	}
+            break;
+        default:
+            break; // Ignore other messages
+    }
+//    midiReadyFlag = 0;
+    HAL_UART_Receive_IT(&huart1, &rxByte, 1);
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
+    if (huart->Instance == USART1) {
+//    	midiReadyFlag = 1;
+    	ProcessMidiByte();
+    }
+}
+
 void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s) {
 	outBufPtr = &dacData[0];
 	dataReadyFlag = 1;
@@ -153,10 +222,12 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){ //interrupt handler
 		HAL_TIM_Base_Start_IT(&htim3);
 		start_button_state = false;
 	}
+	if(GPIO_Pin == CLOCK_IN_Pin){
+		CalculateBPM(1);
+	}
 	else{
 		__NOP();
 	}
-
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -170,8 +241,22 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
-void processData(bool run){
+void processData(bool run, bool sync){
+	if (step_sample > steps_sample) {
+		step_sample = 0;
+	}
 	for (uint8_t n = 0; n < (BUFFER_SIZE / 2) - 1; n += 2 ){
+		active_seq = true;
+		if (sync == true){
+			if ((step + 1) % 4 == 1 && reset_step_sample == false){ // We have completed 4 steps
+				// Stop sequencer until it gets the start flag
+				active_seq = false;
+			}
+			if (reset_step_sample == true){ // We have completed 4 steps
+				step_sample = steps_sample;
+				reset_step_sample = false;
+			}
+		}
         if (step_sample % stutter_sample == 0 && stutter_bool == true) {
             hits[0] = stutter[0];
             hits[1] = stutter[1];
@@ -181,7 +266,7 @@ void processData(bool run){
                 stutter_bool = false;
             }
         }
-        if (step_sample == steps_sample){
+        if (step_sample == steps_sample && active_seq == true){
             if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
                 for (int i = 0; i < 3; ++i) {
                     hits[i] = seq_buffer[i][step];
@@ -204,7 +289,6 @@ void processData(bool run){
             // Stutter & LED
             if ((step + 1) % 4 == 1 && run == true) {
             	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_SET);
-
 
                 // // pot_xtra defines probability of stutter between 0 and 0.1 based on pot_xtra
                 stutter_bool = (rand() % 100) < (pot_xtra / 7);
@@ -234,13 +318,13 @@ void processData(bool run){
 
 		// Generate waveform sample
 		if (hits[0] == 1) {
-		 fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent[0]);
+			fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent[0]);
 		}
 		if (hits[1] == 1) {
 			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, accent[1]);
 		}
 		if (hits[2] == 1) {
-		 hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent[2]);
+			hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent[2]);
 		}
 
 		int16_t out_l = 0;
@@ -303,6 +387,8 @@ int main(void)
   MX_TIM2_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+  // UART
+  HAL_UART_Receive_IT(&huart1, &rxByte, 1);
 
 	// DMA stream for audio
 	HAL_I2S_Transmit_DMA(&hi2s3, (uint16_t *) dacData, BUFFER_SIZE);
@@ -317,35 +403,57 @@ int main(void)
   while (1)
   {
 	/* USER CODE END WHILE */
-	pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
-	pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
-	pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
-	pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
-	pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
-	pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
-	pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
-	pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
-	pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
-	pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
-	pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
-	pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
-	pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
-	pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
-
-	// Adjust BPM
-	bar_sample = (60 * sample_rate * 4) / (pot_bpm);
-	steps_sample = bar_sample / steps;
-	stutter_samples[0] = steps_sample;
-	stutter_samples[1] = (bar_sample / 32);
-
 	/* USER CODE BEGIN 3 */
 	if (dataReadyFlag == 1) {
-		processData(run);
+		// Polling
+		pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
+		pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
+		pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
+		pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
+		pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
+		pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
+		pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
+		pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
+		pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
+		pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
+		pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
+		pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
+		pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
+		pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
+
+		// Adjust BPM
+		bpm_source[2] = pot_bpm;
+		uint32_t bpmTick = HAL_GetTick();
+		sync = true;
+		if (bpmTick - lastTick[0] < 1500){
+			clk_source = 0;
+		}
+		else if (bpmTick - lastTick[1] < 1500){
+			clk_source = 1;
+		}
+		else {
+			clk_source = 2;
+			sync = false;
+		}
+
+		if (bpm_source[clk_source] != bpm){
+			bpm = bpm_source[clk_source];
+			steps_sample = total_samples / bpm / 16;
+			stutter_samples[0] = steps_sample;
+			stutter_samples[1] = steps_sample / 2;
+		}
+
+		// Run program
+		processData(run, sync);
 	}
+//	if (midiReadyFlag == 1) {
+//        ProcessMidiByte();
+//	}
 
   }
   /* USER CODE END 3 */
 }
+
 /**
   * @brief System Clock Configuration
   * @retval None
@@ -580,13 +688,13 @@ static void MX_I2S3_Init(void)
   hi2s3.Init.Standard = I2S_STANDARD_PHILIPS;
   hi2s3.Init.DataFormat = I2S_DATAFORMAT_16B;
   hi2s3.Init.MCLKOutput = I2S_MCLKOUTPUT_DISABLE;
-  hi2s3.Init.AudioFreq = I2S_AUDIOFREQ_48K;
+  hi2s3.Init.AudioFreq = I2S_AUDIOFREQ_44K;
   hi2s3.Init.CPOL = I2S_CPOL_LOW;
   hi2s3.Init.ClockSource = I2S_CLOCK_PLL;
   hi2s3.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
   if (HAL_I2S_Init(&hi2s3) != HAL_OK)
   {
-    Error_Handler();
+	Error_Handler();
   }
   /* USER CODE BEGIN I2S3_Init 2 */
 
@@ -713,11 +821,11 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 31250;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
-  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.Mode = UART_MODE_RX;
   huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
   huart1.Init.OverSampling = UART_OVERSAMPLING_16;
   if (HAL_UART_Init(&huart1) != HAL_OK)
@@ -742,10 +850,10 @@ static void MX_DMA_Init(void)
 
   /* DMA interrupt init */
   /* DMA1_Stream5_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA1_Stream5_IRQn, 1, 0);
   HAL_NVIC_EnableIRQ(DMA1_Stream5_IRQn);
   /* DMA2_Stream0_IRQn interrupt configuration */
-  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(DMA2_Stream0_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(DMA2_Stream0_IRQn);
 
 }
@@ -770,14 +878,8 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : CLOCK_IN_Pin */
-  GPIO_InitStruct.Pin = CLOCK_IN_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(CLOCK_IN_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : START_STOP_BTN_Pin MODE_SELECT_BTN_Pin */
-  GPIO_InitStruct.Pin = START_STOP_BTN_Pin|MODE_SELECT_BTN_Pin;
+  /*Configure GPIO pins : CLOCK_IN_Pin START_STOP_BTN_Pin MODE_SELECT_BTN_Pin */
+  GPIO_InitStruct.Pin = CLOCK_IN_Pin|START_STOP_BTN_Pin|MODE_SELECT_BTN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
@@ -790,7 +892,10 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_Init(MODE_SELECT_LED_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI2_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI2_IRQn);
+
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 2, 0);
   HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
