@@ -37,35 +37,35 @@ public:
             }
         }
 
-//        if (step_sample % stutter_sample == 0 && stutter_flag == true) {
-//            hits[0] = stutter[0];
-//            hits[1] = stutter[1];
-//            hits[2] = stutter[2];
-//            stutters_left--;
-//            if (stutters_left == 0) {
-//                stutter_flag = false;
-//            }
-//        }
+        if (step_sample % stutter_sample == 0 && stutter_flag == true) {
+            hits[0] = stutter[0];
+            hits[1] = stutter[1];
+            hits[2] = stutter[2];
+            stutters_left--;
+            if (stutters_left == 0) {
+                stutter_flag = false;
+            }
+        }
 
         if (step_sample == steps_sample && active_seq == true){
-//            if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
-//                for (int i = 0; i < 3; ++i) {
-//                    hits[i] = seq_buffer[i][step];
-//                }
-//            } else if (stutter_flag == false) {
-//                if (rhythms[pot_seq_1][step] == true){
-//                    drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
-//                }
-//                else {
-//                    chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
-//                }
-//                artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
-//
-//                // Save hits for "turing machine"
-//                for (int i = 0; i < 3; ++i) {
-//                    seq_buffer[i][step] = hits[i];
-//                }
-//            }
+            if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
+                for (int i = 0; i < 3; ++i) {
+                    hits[i] = seq_buffer[i][step];
+                }
+            } else if (stutter_flag == false) {
+                if (rhythms[pot_seq_1][step] == true){
+                    drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
+                }
+                else {
+                    chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
+                }
+                artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
+
+                // Save hits for "turing machine"
+                for (int i = 0; i < 3; ++i) {
+                    seq_buffer[i][step] = hits[i];
+                }
+            }
 
             set_stutter(step, runnn);
 
@@ -74,9 +74,9 @@ public:
             if (step > 15) {
                 step = 0;
             }
-//            if ((rand() % 100) < pot_xtra ) {
-//                FX_flag = true;
-//            }
+            if ((rand() % 100) < pot_xtra ) {
+                FX_flag = true;
+            }
         }
         ++step_sample;
     }
