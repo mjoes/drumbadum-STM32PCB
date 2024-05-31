@@ -45,7 +45,6 @@
 #define MIDI_START     0xFA
 #define MIDI_CONTINUE  0xFB
 #define MIDI_STOP      0xFC
-
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -107,6 +106,7 @@ uint8_t rxByte, clk_source;//bpm_type, clockCount, clk_source;
 //uint32_t stutter_samples[2] = { (steps_sample), (steps_sample / 2) };
 //uint8_t stop_step = 0;
 //uint16_t stop_sample = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
