@@ -7,15 +7,12 @@
 #define MIDI_CONTINUE  0xFB
 #define MIDI_STOP      0xFC
 
-extern UART_HandleTypeDef huart1;
-
 using namespace std;
 
 class Midi {
 public:
-    Midi() {};
+    Midi(): lastTick{} {};
     ~Midi() {};
-    uint8_t bpm_source[3] = { 120, 120, 120 };
 
     void CalculateBPM(uint8_t sync_type) {
         uint32_t currentTick = HAL_GetTick();
@@ -58,7 +55,6 @@ public:
             default:
                 break; // Ignore other messages
         }
-        HAL_UART_Receive_IT(&huart1, &rxByte, 1);
     }
 
     uint8_t clk_source() {
@@ -82,7 +78,6 @@ public:
     uint8_t syncFlag() {
         return sync;
     }
-
 
 
 private:

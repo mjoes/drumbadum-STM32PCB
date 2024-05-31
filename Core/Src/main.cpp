@@ -125,7 +125,6 @@ uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 
 // Initialize MIDI
 uint8_t bpm_type, clk_source;
-uint8_t bpm_source[3] = { 120, 120, 120 };
 bool sync = false;
 bool active_seq = true;
 
@@ -149,6 +148,7 @@ static void MX_TIM3_Init(void);
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART1) {
     	midi.ProcessMidiByte();
+      HAL_UART_Receive_IT(&huart1, &rxByte, 1);
     }
 }
 
