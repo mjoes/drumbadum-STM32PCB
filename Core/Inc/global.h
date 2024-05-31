@@ -4,10 +4,11 @@
 #define GLOBAL_H
 
 // Declare the global variable
-extern bool reset_step_sample, run;
-extern uint16_t step_sample;
-extern uint8_t step;
-extern uint8_t bpm_source[3];
+extern volatile bool reset_step_sample;
+//extern volatile bool run;
+extern volatile uint16_t step_sample;
+extern volatile uint8_t step;
+//extern uint8_t bpm_source[3];
 
 extern uint8_t pot_seq_1;
 extern uint8_t pot_seq_2;

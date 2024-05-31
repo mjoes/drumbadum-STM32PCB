@@ -9,7 +9,7 @@ public:
     bool hits[3] = {};
     bool accent[3] = {};
     bool FX_flag = false;
-    volatile uint8_t step = 0;
+    bool LED_flag = false;
     uint32_t stutter_samples[2] = {};
 
     void reset_hits() {
@@ -23,7 +23,7 @@ public:
         stutter_samples[1] = steps_sample / 2;
     }
 
-    void run_sequencer(bool run, bool sync, uint16_t steps_sample){
+    void run_sequencer(bool sync, bool runnn, uint16_t steps_sample){
         bool active_seq = true;
         FX_flag = false;
         if (sync == true){
@@ -37,49 +37,50 @@ public:
             }
         }
 
-        if (step_sample % stutter_sample == 0 && stutter_flag == true) {
-            hits[0] = stutter[0];
-            hits[1] = stutter[1];
-            hits[2] = stutter[2];
-            stutters_left--;
-            if (stutters_left == 0) {
-                stutter_flag = false;
-            }
-        }
+//        if (step_sample % stutter_sample == 0 && stutter_flag == true) {
+//            hits[0] = stutter[0];
+//            hits[1] = stutter[1];
+//            hits[2] = stutter[2];
+//            stutters_left--;
+//            if (stutters_left == 0) {
+//                stutter_flag = false;
+//            }
+//        }
 
         if (step_sample == steps_sample && active_seq == true){
-            if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
-                for (int i = 0; i < 3; ++i) {
-                    hits[i] = seq_buffer[i][step];
-                }
-            } else if (stutter_flag == false) {
-                if (rhythms[pot_seq_1][step] == true){
-                    drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
-                }
-                else {
-                    chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
-                }
-                artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
+//            if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
+//                for (int i = 0; i < 3; ++i) {
+//                    hits[i] = seq_buffer[i][step];
+//                }
+//            } else if (stutter_flag == false) {
+//                if (rhythms[pot_seq_1][step] == true){
+//                    drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
+//                }
+//                else {
+//                    chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
+//                }
+//                artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
+//
+//                // Save hits for "turing machine"
+//                for (int i = 0; i < 3; ++i) {
+//                    seq_buffer[i][step] = hits[i];
+//                }
+//            }
 
-                // Save hits for "turing machine"
-                for (int i = 0; i < 3; ++i) {
-                    seq_buffer[i][step] = hits[i];
-                }
-            }
-
-            set_stutter(step);
+            set_stutter(step, runnn);
 
             step_sample = 0;
             ++step;
             if (step > 15) {
                 step = 0;
             }
-            if ((rand() % 100) < pot_xtra ) {
-                FX_flag = true;
-            }
+//            if ((rand() % 100) < pot_xtra ) {
+//                FX_flag = true;
+//            }
         }
         ++step_sample;
     }
+
 private:
     uint16_t stutter_sample = 1;
     uint8_t stutters_left = 0;
@@ -88,8 +89,11 @@ private:
     int16_t seq_buffer[3][16] = {};
 
     // Stutter & LED
-    void set_stutter(uint8_t step) {
-        if ((step + 1) % 4 == 1 && run == true) {
+    void set_stutter(uint8_t step, bool runn) {
+        if ((step + 1) % 4 == 1 && runn == true) {
+        	LED_flag = true; // For the BPM led
+        	hits[1] = 1;
+
             // // pot_xtra defines probability of stutter between 0 and 0.1 based on pot_xtra
             stutter_flag = (rand() % 100) < (pot_xtra / 7);
 
@@ -101,6 +105,8 @@ private:
                     stutter[j] = hits[j]; // Save current hit for the stutter
                 }
             }
+        } else {
+        	LED_flag = false;
         }
     }
 
