@@ -1,10 +1,10 @@
 #include "global.h"
 
 bool volatile reset_step_sample = true;
-//bool volatile run = false;
+bool volatile run = false;
 uint16_t volatile step_sample = 0;
 uint8_t volatile step = 0;
-//uint8_t bpm_source[3] = { 120, 120, 120 };
+uint8_t bpm_source[3] = { 120, 120, 120 };
 
 uint8_t pot_seq_1 = 2; // pot_data[6]
 uint8_t pot_seq_2 = 25; // pot_data[5]

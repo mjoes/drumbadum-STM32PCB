@@ -28,7 +28,7 @@
 #include "hihat.h"
 #include "fm_hit.h"
 #include "fx.h"
-//#include "midi.h"
+#include "midi.h"
 #include "global.h"
 #include "sequencer.h"
 /* USER CODE END Includes */
@@ -81,7 +81,7 @@ Out fm_out;
 BassDrum bass_drum(sample_rate, gen);
 HiHat hi_hat(sample_rate, gen);
 FmHit fm(sample_rate, gen);
-//Midi midi;
+Midi midi;
 FX fx(sample_rate, gen);
 Sequencer SQ;
 
@@ -97,16 +97,16 @@ uint32_t total_samples = (60 * sample_rate * 4);
 uint16_t steps_sample = total_samples / bpm / steps;
 
 // Initialize MIDI
-uint8_t rxByte, bpm_type, clockCount, clk_source;
-uint32_t lastTick[2];
-uint8_t bpm_source[3] = { 120, 120, 120 };
-//bool reset_step_sample = true;
-bool sync = false;
-bool run = false;
-bool active_seq = true;
-uint32_t stutter_samples[2] = { (steps_sample), (steps_sample / 2) };
-uint8_t stop_step = 0;
-uint16_t stop_sample = 0;
+uint8_t rxByte, clk_source;//bpm_type, clockCount, clk_source;
+//uint32_t lastTick[2];
+//uint8_t bpm_source[3] = { 120, 120, 120 };
+////bool reset_step_sample = true;
+//bool sync = false;
+//bool run = false;
+//bool active_seq = true;
+//uint32_t stutter_samples[2] = { (steps_sample), (steps_sample / 2) };
+//uint8_t stop_step = 0;
+//uint16_t stop_sample = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -124,55 +124,9 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void CalculateBPM(uint8_t sync_type) {
-    uint32_t currentTick = HAL_GetTick();
-    uint32_t elapsedTime = currentTick - lastTick[sync_type];
-    lastTick[sync_type] = currentTick;
-    bpm_source[sync_type] = 60000 / elapsedTime;
-    reset_step_sample = true;
-}
-
-void ProcessMidiByte() {
-    switch (rxByte) {
-        case MIDI_CLOCK:
-        	clockCount++;
-            if (clockCount >= 24) {
-                clockCount = 0;
-                CalculateBPM(0);
-            }
-            break;
-        case MIDI_START:
-        	if (run == false) {
-        		step = 0;
-        		step_sample = 0;
-        		run = true;
-        	}
-            break;
-        case MIDI_CONTINUE:
-        	if (run == false){
-        		step = stop_step;
-        		step_sample = stop_sample;
-        		run = true;
-        	}
-            break;
-        case MIDI_STOP:
-        	if (run == true){
-        		stop_step = step;
-        		stop_sample = step_sample;
-        		run = false;
-        	}
-            break;
-        default:
-            break; // Ignore other messages
-    }
-//    midiReadyFlag = 0;
-    HAL_UART_Receive_IT(&huart1, &rxByte, 1);
-}
-
-
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART1) {
-    	ProcessMidiByte();
+    	midi.ProcessMidiByte(rxByte);
     	HAL_UART_Receive_IT(&huart1, &rxByte, 1);
     }
 }
@@ -193,7 +147,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){ //interrupt handler
 		start_button_state = false;
 	}
 	if(GPIO_Pin == CLOCK_IN_Pin){
-		CalculateBPM(1);
+		midi.CalculateBPM(1);
 	}
 	else{
 		__NOP();
@@ -205,7 +159,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	if (htim->Instance == TIM3) {
 		run ^= true;
 		step = 0;
-		step_sample = 0;
+		step_sample = steps_sample;
 		start_button_state = true;
 		HAL_TIM_Base_Stop_IT(&htim3);
 	}
@@ -329,38 +283,16 @@ int main(void)
 		pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
 		pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
 
-//		// Adjust BPM
-//		bpm_source[2] = pot_bpm;
-//		clk_source = midi.clk_source();
-//		bool sync = midi.syncFlag();
-//
-//		if (bpm_source[clk_source] != bpm){
-//			bpm = bpm_source[clk_source];
-//			steps_sample = total_samples / bpm / steps;
-//			SQ.set_stutter_samples(steps_sample);
-//		}
 		// Adjust BPM
 		bpm_source[2] = pot_bpm;
-		uint32_t bpmTick = HAL_GetTick();
-		sync = true;
-		if (bpmTick - lastTick[0] < 1500){
-			clk_source = 0;
-		}
-		else if (bpmTick - lastTick[1] < 1500){
-			clk_source = 1;
-		}
-		else {
-			clk_source = 2;
-			sync = false;
-		}
+		clk_source = midi.clk_source();
+		bool sync = midi.syncFlag();
 
 		if (bpm_source[clk_source] != bpm){
 			bpm = bpm_source[clk_source];
-			steps_sample = total_samples / bpm / 16;
-			stutter_samples[0] = steps_sample;
-			stutter_samples[1] = steps_sample / 2;
+			steps_sample = total_samples / bpm / steps;
+			SQ.set_stutter_samples(steps_sample);
 		}
-
 
 		// Run program
 		processData(run, sync, steps_sample);
