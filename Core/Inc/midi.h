@@ -22,8 +22,8 @@ public:
         reset_step_sample = true;
     }
 
-    void ProcessMidiByte() {
-        switch (rxByte) {
+    void ProcessMidiByte(uint8_t rx_byte) {
+        switch (rx_byte) {
             case MIDI_CLOCK:
                 clockCount++;
                 if (clockCount >= 24) {

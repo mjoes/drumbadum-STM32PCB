@@ -30,6 +30,7 @@
 #include "fx.h"
 #include "midi.h"
 #include "global.h"
+#include "sequencer.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,11 +66,6 @@ static volatile int16_t *outBufPtr = &dacData[0];
 uint8_t dataReadyFlag;
 const uint16_t sample_rate = 43402;
 
-// Sinewaves
-uint32_t sampleNumber = 0;
-float mySinVal, sample_dt;
-uint16_t sample_N;
-
 random_device rd{};
 minstd_rand gen{rd()};
 
@@ -81,52 +77,22 @@ HiHat hi_hat(sample_rate, gen);
 FmHit fm(sample_rate, gen);
 Midi midi;
 FX fx(sample_rate, gen);
+Sequencer SQ;
 
-// USER INTERFACE;
-uint8_t pot_seq_1 = 2; // pot_data[6]
-uint8_t pot_seq_2 = 25; // pot_data[5]
-uint8_t pot_seq_3 = 25; // pot_data[7]
-uint8_t pot_seq_rd = 50; // pot_data[4]
-uint8_t pot_seq_art = 50;// pot_data[3]
-uint8_t pot_seq_turing = 50; // pot_data[2]
-uint8_t pot_snd_1 = 25; // pot_data[10]
-uint8_t pot_snd_2 = 50 - pot_map(700,50);
-uint8_t pot_snd_bd = 50; // pot_data[13]
-uint8_t pot_snd_hh = 50; // pot_data[9]
-uint8_t pot_snd_fm = 50; // pot_data[8]
-uint8_t pot_xtra = 0; // pot_data[12]
-uint8_t pot_bpm = 120; // pot_data[1]
-uint8_t pot_volume = 100; // pot_data[0]
-// DON'T FORGET 2X LED AND CLOCK IN AND MIDI IN AND STEREO OUT
+uint16_t pot_data[14];
+
 bool start_button_state = true;
 bool mode_select_button_state = true; // just a placeholder so I don't forget to create it
 
-// Sequencer
-uint8_t bpm = 120;
-
-// Init stutter
-
-uint16_t stutter_sample = 1;
-bool stutter_bool = false;
-uint8_t stutters_left = 0;
-uint16_t pot_data[14];
-
 // Initialize sequencer
-bool hits[3] = { 0, 0, 0};
-bool accent[3] = { 0, 0, 0};
-bool stutter[3] = { 0, 0, 0};
-int16_t seq_buffer[3][16] = {0};
+uint8_t bpm = 120;
 const uint8_t steps = 16; // 8, 16 or 32
-uint32_t bar_sample = (60 * sample_rate * 4) / (bpm);
 uint32_t total_samples = (60 * sample_rate * 4);
+uint16_t steps_sample = total_samples / bpm / 16;
 
-uint16_t steps_sample = bar_sample / steps;
-uint32_t stutter_samples[2] = { (bar_sample / 16), (bar_sample / 32) };
 
 // Initialize MIDI
-uint8_t bpm_type, clk_source;
-bool sync = false;
-bool active_seq = true;
+uint8_t clk_source, rxByte;
 
 /* USER CODE END PV */
 
@@ -145,17 +111,17 @@ static void MX_TIM3_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART1) {
-    	midi.ProcessMidiByte();
-      HAL_UART_Receive_IT(&huart1, &rxByte, 1);
+    	midi.ProcessMidiByte(rxByte);
+    	HAL_UART_Receive_IT(&huart1, &rxByte, 1);
     }
 }
 
 void HAL_I2S_TxHalfCpltCallback(I2S_HandleTypeDef *hi2s) {
 	outBufPtr = &dacData[0];
 	dataReadyFlag = 1;
-
 }
 
 void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s) {
@@ -187,110 +153,40 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	}
 }
 
-void processData(bool run, bool sync){
+void processData(bool run, bool sync, uint16_t steps_sample){
 	if (step_sample > steps_sample) {
 		step_sample = 0;
 	}
 	for (uint8_t n = 0; n < (BUFFER_SIZE / 2) - 1; n += 2 ){
-		active_seq = true;
-		if (sync == true){
-			if ((step + 1) % 4 == 1 && reset_step_sample == false){ // We have completed 4 steps
-				// Stop sequencer until it gets the start flag
-				active_seq = false;
-			}
-			if (reset_step_sample == true){ // We have completed 4 steps
-				step_sample = steps_sample;
-				reset_step_sample = false;
-			}
-		}
-        if (step_sample % stutter_sample == 0 && stutter_bool == true) {
-            hits[0] = stutter[0];
-            hits[1] = stutter[1];
-            hits[2] = stutter[2];
-            stutters_left--;
-            if (stutters_left == 0) {
-                stutter_bool = false;
-            }
-        }
-        if (step_sample == steps_sample && active_seq == true){
-            if (pot_seq_turing < 20 || pot_seq_turing > 80 ) {
-                for (int i = 0; i < 3; ++i) {
-                    hits[i] = seq_buffer[i][step];
-                }
-            } else if (stutter_bool == false) {
-                if (rhythms[pot_seq_1][step] == true){
-                	drum_hit(pot_seq_2,pot_seq_3,step, hits, accent);
-                }
-                else {
-                	chance_drum_hit(pot_seq_2, pot_seq_3, pot_seq_rd, step, hits, accent);
-                }
-                artifacts_hit(pot_seq_2, pot_seq_rd, pot_seq_art, step, hits, accent);
-
-                // Save hits for "turing machine"
-                for (int i = 0; i < 3; ++i) {
-                    seq_buffer[i][step] = hits[i];
-                }
-            }
-
-            // Stutter & LED
-            if ((step + 1) % 4 == 1 && run == true) {
-            	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_SET);
-
-                // // pot_xtra defines probability of stutter between 0 and 0.1 based on pot_xtra
-                stutter_bool = (rand() % 100) < (pot_xtra / 7);
-
-                if (stutter_bool){
-                    stutters_left = (rand() % 4) + 1; // How many stutters in next cycle
-                    uint16_t index = (rand() % 2); // either 16 or 32th stutters
-                    stutter_sample = stutter_samples[index];
-                    for (int j = 0; j < 3; ++j) {
-                        stutter[j] = hits[j]; // Save current hit for the stutter
-                    }
-                }
-            } else {
-            	HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_RESET);
-            }
-
-            step_sample = 0;
-            ++step;
-            if (step > 15) {
-                step = 0;
-            }
-            if ((rand() % 100) < pot_xtra ) {
-                fx.set_start(steps_sample);
-            }
-        }
-        ++step_sample;
-
+		SQ.run_sequencer(true, false, steps_sample);
 		// Generate waveform sample
-		if (hits[0] == 1) {
-			fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, accent[0]);
+		if (SQ.hits[0] == 1) {
+			fm.set_start(pot_snd_1, pot_snd_2, pot_snd_fm, SQ.accent[0]);
 		}
-		if (hits[1] == 1) {
-			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, accent[1]);
+		if (SQ.hits[1] == 1) {
+			bass_drum.set_start(pot_snd_1, pot_snd_2, pot_snd_bd, SQ.accent[1]);
 		}
-		if (hits[2] == 1) {
-			hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, accent[2]);
+		if (SQ.hits[2] == 1) {
+			hi_hat.set_start(pot_snd_1, pot_snd_2, pot_snd_hh, SQ.accent[2]);
+		}
+		if (SQ.FX_flag) {
+			fx.set_start(steps_sample);
 		}
 
 		int16_t out_l = 0;
 		int16_t out_r = 0;
 		if (run){
-	        bass_drum_out = bass_drum.Process();
-	        hi_hat_out = hi_hat.Process();
-	        fm_out = fm.Process();
-	        out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 20 + fm_out.out_l * 8 ) / 30);
-	        out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 20 + fm_out.out_r * 8 ) / 30);
-	        fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 5);
+			bass_drum_out = bass_drum.Process();
+			hi_hat_out = hi_hat.Process();
+			fm_out = fm.Process();
+			out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 20 + fm_out.out_l * 8 ) / 30);
+			out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 20 + fm_out.out_r * 8 ) / 30);
+			fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 5);
 		} else {
 			outBufPtr[n] = (out_l);
 			outBufPtr[n + 1] = (out_r);
 		}
-
-        for (int i = 0; i < 3; ++i) {
-            hits[i] = 0; // Access each element using array subscript notation
-        }
-
+    SQ.reset_hits();
 
 	}
 	dataReadyFlag = 0;
@@ -342,6 +238,8 @@ int main(void)
   // DMA stream for ADC
   HAL_ADC_Start_DMA(&hadc1, (uint32_t *) pot_data, 14);
   HAL_TIM_Base_Start(&htim2);
+
+  SQ.set_stutter_samples(steps_sample);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -370,17 +268,16 @@ int main(void)
 		// Adjust BPM
 		bpm_source[2] = pot_bpm;
 		clk_source = midi.clk_source();
-		sync = midi.syncFlag();
+		bool sync = midi.syncFlag();
 
 		if (bpm_source[clk_source] != bpm){
 			bpm = bpm_source[clk_source];
 			steps_sample = total_samples / bpm / 16;
-			stutter_samples[0] = steps_sample;
-			stutter_samples[1] = steps_sample / 2;
+			SQ.set_stutter_samples(steps_sample);
 		}
 
 		// Run program
-		processData(run, sync);
+		processData(run, sync, steps_sample);
 	}
   }
   /* USER CODE END 3 */
