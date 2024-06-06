@@ -41,10 +41,6 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define BUFFER_SIZE    128
-#define MIDI_CLOCK     0xF8
-#define MIDI_START     0xFA
-#define MIDI_CONTINUE  0xFB
-#define MIDI_STOP      0xFC
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -61,6 +57,7 @@ DMA_HandleTypeDef hdma_spi3_tx;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
+TIM_HandleTypeDef htim4;
 
 UART_HandleTypeDef huart1;
 
@@ -87,26 +84,18 @@ Sequencer SQ;
 // UI
 uint16_t pot_data[14]; //pot DMA
 bool start_button_state = true;
-bool mode_select_button_state = true;
+bool mode_button_state = true;
+bool mode = 0;
 
 // Sequencer
 uint8_t bpm = 120;
-const uint8_t steps = 16; // 8, 16 or 32
+uint8_t steps = 16; // 8, 16 or 32
+const uint8_t steps_list[3] = { 8, 16, 32 };
 uint32_t total_samples = (60 * sample_rate * 4);
 uint16_t steps_sample = total_samples / bpm / steps;
 
 // Initialize MIDI
-uint8_t rxByte, clk_source;//bpm_type, clockCount, clk_source;
-//uint32_t lastTick[2];
-//uint8_t bpm_source[3] = { 120, 120, 120 };
-////bool reset_step_sample = true;
-//bool sync = false;
-//bool run = false;
-//bool active_seq = true;
-//uint32_t stutter_samples[2] = { (steps_sample), (steps_sample / 2) };
-//uint8_t stop_step = 0;
-//uint16_t stop_sample = 0;
-
+uint8_t rxByte, clk_source;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -118,6 +107,7 @@ static void MX_ADC1_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_TIM4_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -146,6 +136,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){ //interrupt handler
 		HAL_TIM_Base_Start_IT(&htim3);
 		start_button_state = false;
 	}
+	if(GPIO_Pin == MODE_SELECT_BTN_Pin && mode_button_state == true){
+		HAL_TIM_Base_Start_IT(&htim4);
+		mode_button_state = false;
+	}
 	if(GPIO_Pin == CLOCK_IN_Pin){
 		midi.CalculateBPM(1);
 	}
@@ -162,6 +156,15 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		step_sample = steps_sample;
 		start_button_state = true;
 		HAL_TIM_Base_Stop_IT(&htim3);
+	}
+	if (htim->Instance == TIM4) {
+		if (HAL_GPIO_ReadPin(GPIOC, MODE_SELECT_BTN_Pin) == GPIO_PIN_RESET) {
+			mode = 0; // standard mode
+		} else {
+			mode = 1; // alt mode
+		}
+		mode_button_state = true;
+		HAL_TIM_Base_Stop_IT(&htim4);
 	}
 }
 
@@ -194,9 +197,9 @@ void processData(bool running, bool sync_in, uint16_t steps_sample){
 		int16_t out_l = 0;
 		int16_t out_r = 0;
 		if (running){
-			bass_drum_out = bass_drum.Process();
-			hi_hat_out = hi_hat.Process();
-			fm_out = fm.Process();
+			bass_drum_out = bass_drum.Process(pot_vol_bd);
+			hi_hat_out = hi_hat.Process(pot_vol_hh);
+			fm_out = fm.Process(pot_vol_fm);
 			out_l = ((bass_drum_out.out_l * 10 + hi_hat_out.out_l * 20 + fm_out.out_l * 8 ) / 30);
 			out_r = ((bass_drum_out.out_r * 10 + hi_hat_out.out_r * 20 + fm_out.out_r * 8 ) / 30);
 			fx.Process(&outBufPtr[n], &outBufPtr[n + 1], &out_l, &out_r, pot_volume, 5);
@@ -210,6 +213,7 @@ void processData(bool running, bool sync_in, uint16_t steps_sample){
 	dataReadyFlag = 0;
 }
 /* USER CODE END 0 */
+
 
 /**
   * @brief  The application entry point.
@@ -246,6 +250,7 @@ int main(void)
   MX_USART1_UART_Init();
   MX_TIM2_Init();
   MX_TIM3_Init();
+  MX_TIM4_Init();
   /* USER CODE BEGIN 2 */
   // UART
   HAL_UART_Receive_IT(&huart1, &rxByte, 1);
@@ -268,20 +273,34 @@ int main(void)
 	/* USER CODE BEGIN 3 */
 	if (dataReadyFlag == 1) {
 		// Polling
-		pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
-		pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
 		pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
 		pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
 		pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
 		pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
 		pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
 		pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
-		pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
-		pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
 		pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
 		pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
 		pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
-		pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
+		pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
+
+		if (mode == 0) {
+			pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
+			pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
+			pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
+			pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
+
+		}
+		if (mode == 1) {
+			pot_steps = ((4096 - pot_data[1]) * 3) >> 12;
+			steps = steps_list[pot_steps];
+			steps_sample = total_samples / bpm / steps;
+
+			pot_vol_bd = ((4096 - pot_data[13]) << 7) >> 12;
+			pot_vol_fm = ((4096 - pot_data[8]) << 7) >> 12;
+			pot_vol_hh = ((4096 - pot_data[9]) << 7) >> 12;
+		}
+
 
 		// Adjust BPM
 		bpm_source[2] = pot_bpm;
@@ -541,7 +560,7 @@ static void MX_I2S3_Init(void)
   hi2s3.Init.FullDuplexMode = I2S_FULLDUPLEXMODE_DISABLE;
   if (HAL_I2S_Init(&hi2s3) != HAL_OK)
   {
-	Error_Handler();
+    Error_Handler();
   }
   /* USER CODE BEGIN I2S3_Init 2 */
 
@@ -653,6 +672,51 @@ static void MX_TIM3_Init(void)
 }
 
 /**
+  * @brief TIM4 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM4_Init(void)
+{
+
+  /* USER CODE BEGIN TIM4_Init 0 */
+
+  /* USER CODE END TIM4_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM4_Init 1 */
+
+  /* USER CODE END TIM4_Init 1 */
+  htim4.Instance = TIM4;
+  htim4.Init.Prescaler = 42000;
+  htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim4.Init.Period = 100;
+  htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim4) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim4, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim4, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM4_Init 2 */
+
+  /* USER CODE END TIM4_Init 2 */
+
+}
+
+/**
   * @brief USART1 Initialization Function
   * @param None
   * @retval None
@@ -725,11 +789,23 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(MODE_SELECT_LED_GPIO_Port, MODE_SELECT_LED_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : CLOCK_IN_Pin START_STOP_BTN_Pin MODE_SELECT_BTN_Pin */
-  GPIO_InitStruct.Pin = CLOCK_IN_Pin|START_STOP_BTN_Pin|MODE_SELECT_BTN_Pin;
+  /*Configure GPIO pin : CLOCK_IN_Pin */
+  GPIO_InitStruct.Pin = CLOCK_IN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(CLOCK_IN_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : START_STOP_BTN_Pin */
+  GPIO_InitStruct.Pin = START_STOP_BTN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(START_STOP_BTN_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : MODE_SELECT_BTN_Pin */
+  GPIO_InitStruct.Pin = MODE_SELECT_BTN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(MODE_SELECT_BTN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : MODE_SELECT_LED_Pin */
   GPIO_InitStruct.Pin = MODE_SELECT_LED_Pin;

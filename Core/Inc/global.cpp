@@ -20,3 +20,8 @@ uint8_t pot_snd_fm = 50; // pot_data[8]
 uint8_t pot_xtra = 0; // pot_data[12]
 uint8_t pot_bpm = 120; // pot_data[1]
 uint8_t pot_volume = 100; // pot_data[0]
+
+uint8_t pot_steps = 64;
+uint8_t pot_vol_bd = 100;
+uint8_t pot_vol_fm = 100;
+uint8_t pot_vol_hh = 100;

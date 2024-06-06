@@ -97,7 +97,7 @@ public:
         }
     }
 
-    Out Process() {
+    Out Process(uint8_t volume) {
         // Generate waveform sample
         if (running_ == false) {
             out.out_l = 0;
@@ -106,11 +106,13 @@ public:
         }
 
         int32_t sample;
+        int16_t output;
         uint16_t rel_env = interpolate_env(rel_pos_, length_decay_, exp_env);
         sample = GenerateSample(rel_env);
         sample = sample * FM.velocity_ / 1000;
         sample *= rel_env / 2;
-        int16_t output = sample >> 15; // Again rather cheeky :)
+        output = sample >> 15; // Again rather cheeky :)
+        output = (output * volume) >> 7;
 
         rel_pos_ += 1;
         if (rel_pos_ >= end_i_) {

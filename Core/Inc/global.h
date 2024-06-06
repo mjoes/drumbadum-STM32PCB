@@ -24,5 +24,9 @@ extern uint8_t pot_snd_fm;
 extern uint8_t pot_xtra;
 extern uint8_t pot_bpm;
 extern uint8_t pot_volume;
+extern uint8_t pot_steps;
+extern uint8_t pot_vol_bd;
+extern uint8_t pot_vol_fm;
+extern uint8_t pot_vol_hh;
 
 #endif // GLOBAL_H

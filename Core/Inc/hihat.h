@@ -95,7 +95,7 @@ public:
         }
     }
 
-    Out Process() {
+    Out Process(uint8_t volume) {
         // Generate waveform sample
         if (running_ == false) {
             out.out_l = 0;
@@ -107,7 +107,7 @@ public:
         sample = bp_filter_2(rand() % 65535 - 32767);
         sample = (sample * HH.velocity_) / 1000;
         interpolate_env_alt(&sample, rel_pos_, length_decay_, lookup_table_);
-        int16_t output = sample;
+        int16_t output = (sample * volume) >> 7;
 
         rel_pos_ += 1;
         if (rel_pos_ >= length_decay_) {

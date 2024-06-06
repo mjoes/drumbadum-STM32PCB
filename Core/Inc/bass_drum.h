@@ -99,7 +99,7 @@ public:
         end_i_ = BD.length_decay_;
     }
 
-    Out Process() {
+    Out Process(uint8_t volume) {
         // Generate waveform sample
         if (running_ == false) {
             out.out_l = 0;
@@ -111,7 +111,7 @@ public:
         // sample += GenerateHarmonics();
         sample = (sample * BD.velocity_) >> 10; //  /1024
         interpolate_env_alt(&sample, rel_pos_, BD.length_decay_, exp_env);
-        int16_t output = Overdrive(sample);
+        int16_t output = (Overdrive(sample) * volume) >> 7;
 
         rel_pos_ += 1;
 
