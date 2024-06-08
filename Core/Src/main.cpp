@@ -31,6 +31,7 @@
 #include "midi.h"
 #include "global.h"
 #include "sequencer.h"
+#include "pot.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -70,7 +71,7 @@ const uint16_t sample_rate = 43402;
 random_device rd{};
 minstd_rand gen{rd()};
 
-// Classes
+// Classesfi
 Out bass_drum_out;
 Out hi_hat_out;
 Out fm_out;
@@ -80,12 +81,15 @@ FmHit fm(sample_rate, gen);
 Midi midi;
 FX fx(sample_rate, gen);
 Sequencer SQ;
+Pot potSpeed, potBD, potHH, potFM;
 
 // UI
 uint16_t pot_data[14]; //pot DMA
 bool start_button_state = true;
 bool mode_button_state = true;
 bool mode = 0;
+bool pot_flag = 0;
+bool last_mode = 0;
 
 // Sequencer
 uint8_t bpm = 120;
@@ -114,6 +118,57 @@ static void MX_TIM4_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+void processPots() {
+	// Polling
+	pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
+	pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
+	pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
+	pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
+	pot_seq_1 = ((4096 - pot_data[6]) * 18) >> 12;
+	pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
+	pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
+	pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
+	pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
+	pot_volume = (4096 - pot_data[0]) >> 5;
+	potBD.set_pot_val(pot_data[13]);
+	potFM.set_pot_val(pot_data[8]);
+	potHH.set_pot_val(pot_data[9]);
+	potSpeed.set_pot_val(pot_data[1]);
+
+	if (mode == 0) {
+		if (last_mode == 1){
+			potSpeed.mode_change(0);
+			potHH.mode_change(0);
+			potFM.mode_change(0);
+			potBD.mode_change(0);
+		}
+
+		// Handle pot values
+		pot_bpm = 40 + ((potSpeed.Process() * 160) >> 12);
+		pot_snd_bd = (potBD.Process() * 100) >> 12;
+		pot_snd_fm = (potFM.Process() * 100) >> 12;
+		pot_snd_hh = (potHH.Process() * 100) >> 12;
+		last_mode = 0;
+	}
+	if (mode == 1) {
+		if (last_mode == 0){
+			potSpeed.mode_change(1);
+			potHH.mode_change(1);
+			potFM.mode_change(1);
+			potBD.mode_change(1);
+		}
+
+		// Handle pot values
+		pot_steps = (potSpeed.Process() * 3) >> 12;
+		steps = steps_list[pot_steps];
+		steps_sample = total_samples / bpm / steps;
+		pot_vol_bd = potBD.Process() >> 5;
+		pot_vol_fm = potFM.Process() >> 5;
+		pot_vol_hh = potHH.Process() >> 5;
+		last_mode = 1;
+	}
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
     if (huart->Instance == USART1) {
     	midi.ProcessMidiByte(rxByte);
@@ -137,8 +192,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){ //interrupt handler
 		start_button_state = false;
 	}
 	if(GPIO_Pin == MODE_SELECT_BTN_Pin && mode_button_state == true){
-		HAL_TIM_Base_Start_IT(&htim4);
 		mode_button_state = false;
+		HAL_TIM_Base_Start_IT(&htim4);
+
 	}
 	if(GPIO_Pin == CLOCK_IN_Pin){
 		midi.CalculateBPM(1);
@@ -150,6 +206,10 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin){ //interrupt handler
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+	if (htim->Instance == TIM2) {
+		pot_flag = 1;
+	}
+
 	if (htim->Instance == TIM3) {
 		run ^= true;
 		step = 0;
@@ -158,15 +218,17 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		HAL_TIM_Base_Stop_IT(&htim3);
 	}
 	if (htim->Instance == TIM4) {
-		if (HAL_GPIO_ReadPin(GPIOC, MODE_SELECT_BTN_Pin) == GPIO_PIN_RESET) {
-			mode = 0; // standard mode
-		} else {
+		uint8_t button_state = HAL_GPIO_ReadPin(MODE_SELECT_BTN_GPIO_Port, MODE_SELECT_BTN_Pin);
+		if (button_state == GPIO_PIN_RESET) {
 			mode = 1; // alt mode
+		} else {
+			mode = 0; // standard mode
 		}
 		mode_button_state = true;
 		HAL_TIM_Base_Stop_IT(&htim4);
 	}
 }
+
 
 void processData(bool running, bool sync_in, uint16_t steps_sample){
 	if (step_sample > steps_sample) {
@@ -214,7 +276,6 @@ void processData(bool running, bool sync_in, uint16_t steps_sample){
 }
 /* USER CODE END 0 */
 
-
 /**
   * @brief  The application entry point.
   * @retval int
@@ -260,8 +321,12 @@ int main(void)
 
   // DMA stream for ADC
   HAL_ADC_Start_DMA(&hadc1, (uint32_t *) pot_data, 14);
-  HAL_TIM_Base_Start(&htim2);
+  HAL_TIM_Base_Start_IT(&htim2);
 
+  potSpeed.set_init_val(2048);
+  potHH.set_init_val(3200);
+  potFM.set_init_val(3200);
+  potBD.set_init_val(3200);
   SQ.set_stutter_samples(steps_sample);
   /* USER CODE END 2 */
 
@@ -271,37 +336,11 @@ int main(void)
   {
 	/* USER CODE END WHILE */
 	/* USER CODE BEGIN 3 */
+	if (pot_flag == 1){
+		processPots();
+		pot_flag = 0;
+	}
 	if (dataReadyFlag == 1) {
-		// Polling
-		pot_seq_turing = ((4096 - pot_data[2]) * 100) >> 12;
-		pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
-		pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
-		pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
-		pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
-		pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
-		pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
-		pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
-		pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
-		pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
-
-		if (mode == 0) {
-			pot_bpm = 40 + (((4096 - pot_data[1]) * 160) >> 12);
-			pot_snd_bd = ((4096 - pot_data[13]) * 100) >> 12;
-			pot_snd_fm = ((4096 - pot_data[8]) * 100) >> 12;
-			pot_snd_hh = ((4096 - pot_data[9]) * 100) >> 12;
-
-		}
-		if (mode == 1) {
-			pot_steps = ((4096 - pot_data[1]) * 3) >> 12;
-			steps = steps_list[pot_steps];
-			steps_sample = total_samples / bpm / steps;
-
-			pot_vol_bd = ((4096 - pot_data[13]) << 7) >> 12;
-			pot_vol_fm = ((4096 - pot_data[8]) << 7) >> 12;
-			pot_vol_hh = ((4096 - pot_data[9]) << 7) >> 12;
-		}
-
-
 		// Adjust BPM
 		bpm_source[2] = pot_bpm;
 		clk_source = midi.clk_source();
