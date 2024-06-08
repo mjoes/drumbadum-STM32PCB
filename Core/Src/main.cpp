@@ -129,7 +129,7 @@ void processPots() {
 	pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
 	pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
 	pot_xtra = ((4096 - pot_data[12]) * 100) >> 12;
-	pot_volume = ((4096 - pot_data[0]) << 7) >> 12;
+	pot_volume = (4096 - pot_data[0]) >> 5;
 	potBD.set_pot_val(pot_data[13]);
 	potFM.set_pot_val(pot_data[8]);
 	potHH.set_pot_val(pot_data[9]);
@@ -162,9 +162,9 @@ void processPots() {
 		pot_steps = (potSpeed.Process() * 3) >> 12;
 		steps = steps_list[pot_steps];
 		steps_sample = total_samples / bpm / steps;
-		pot_vol_bd = (potBD.Process() << 7) >> 12;
-		pot_vol_fm = (potFM.Process() << 7) >> 12;
-		pot_vol_hh = (potHH.Process() << 7) >> 12;
+		pot_vol_bd = potBD.Process() >> 5;
+		pot_vol_fm = potFM.Process() >> 5;
+		pot_vol_hh = potHH.Process() >> 5;
 		last_mode = 1;
 	}
 }
