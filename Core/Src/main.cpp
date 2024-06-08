@@ -124,7 +124,7 @@ void processPots() {
 	pot_seq_art = ((4096 - pot_data[3]) * 100) >> 12;
 	pot_seq_rd = ((4096 - pot_data[4]) * 100) >> 12;
 	pot_seq_2 = ((4096 - pot_data[5]) * 50) >> 12;
-	pot_seq_1 = ((4096 - pot_data[6]) * 5) >> 12;
+	pot_seq_1 = ((4096 - pot_data[6]) * 18) >> 12;
 	pot_seq_3 = ((4096 - pot_data[7]) * 50) >> 12;
 	pot_snd_1 = ((4096 - pot_data[10]) * 50) >> 12;
 	pot_snd_2 = ((50 - (4096 - pot_data[11])) * 50) >> 12;
